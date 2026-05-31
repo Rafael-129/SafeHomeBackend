@@ -128,5 +128,6 @@ class HistorialAccesosSerializer(serializers.ModelSerializer):
             return {
                 'tipo_persona': scanner.tipo_persona,
                 'fecha': scanner.fecha,
+                'foto_capturada': scanner.foto_capturada,
             }
         return None
