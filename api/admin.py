@@ -1,5 +1,15 @@
 from django.contrib import admin
-from .models import Departamento, Usuario, Visitante, Scanner, HistorialAccesos, PerfilAplicacion
+from .models import (
+    Departamento,
+    EventosSistema,
+    HistorialAccesos,
+    PerfilAplicacion,
+    Scanner,
+    SesionesAdmin,
+    Usuario,
+    UsuarioAdmin,
+    Visitante,
+)
 
 
 @admin.register(Departamento)
@@ -11,7 +21,7 @@ class DepartamentoAdmin(admin.ModelAdmin):
 
 
 @admin.register(Usuario)
-class UsuarioAdmin(admin.ModelAdmin):
+class UsuarioModelAdmin(admin.ModelAdmin):
     list_display = ['idusuario', 'nombre', 'apellido', 'dni', 'correo', 'iddepartamento']
     list_filter = ['iddepartamento']
     search_fields = ['nombre', 'apellido', 'dni', 'correo']
@@ -54,3 +64,27 @@ class HistorialAccesosAdmin(admin.ModelAdmin):
 @admin.register(PerfilAplicacion)
 class PerfilAplicacionAdmin(admin.ModelAdmin):
     list_display = ['idperfil', 'nombre_aplicacion', 'version', 'permitir_registro_sin_foto', 'politica_foto_requerida', 'updated_at']
+
+
+@admin.register(UsuarioAdmin)
+class UsuarioAdminSistemaAdmin(admin.ModelAdmin):
+    list_display = ['idadmin', 'username', 'nombre_completo', 'email', 'rol', 'activo', 'ultimo_acceso']
+    list_filter = ['rol', 'activo', 'autenticacion_2fa', 'tema']
+    search_fields = ['username', 'nombre_completo', 'email']
+    ordering = ['username']
+
+
+@admin.register(SesionesAdmin)
+class SesionesAdminModelAdmin(admin.ModelAdmin):
+    list_display = ['idsesion', 'idadmin', 'ip_address', 'fecha_inicio', 'fecha_expiracion', 'activa']
+    list_filter = ['activa', 'fecha_inicio']
+    search_fields = ['token', 'idadmin__username', 'ip_address']
+    ordering = ['-fecha_inicio']
+
+
+@admin.register(EventosSistema)
+class EventosSistemaAdmin(admin.ModelAdmin):
+    list_display = ['idevento', 'tipo', 'nivel', 'idadmin', 'ip_address', 'fecha']
+    list_filter = ['nivel', 'tipo', 'fecha']
+    search_fields = ['tipo', 'descripcion', 'ip_address', 'idadmin__username']
+    ordering = ['-fecha']

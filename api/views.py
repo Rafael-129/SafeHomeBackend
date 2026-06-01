@@ -1,18 +1,33 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from django.db.models import Count
+from django.db.models.deletion import ProtectedError
+from django.db import IntegrityError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
-from .models import Departamento, HistorialAccesos, PerfilAplicacion, Scanner, Usuario, Visitante
+from .models import (
+    Departamento,
+    EventosSistema,
+    HistorialAccesos,
+    PerfilAplicacion,
+    Scanner,
+    SesionesAdmin,
+    Usuario,
+    UsuarioAdmin,
+    Visitante,
+)
 from .serializers import (
     DepartamentoSerializer,
+    EventosSistemaSerializer,
     HistorialAccesosSerializer,
     PerfilAplicacionSerializer,
     ScannerSerializer,
+    SesionesAdminSerializer,
     UsuarioSerializer,
+    UsuarioAdminSerializer,
     VisitanteSerializer,
 )
 
@@ -33,6 +48,9 @@ def api_root(request):
             'historial': '/api/historial/',
             'historial_estadisticas': '/api/historial/estadisticas/?desde=YYYY-MM-DD&hasta=YYYY-MM-DD',
             'perfil_actual': '/api/perfil/actual/',
+            'admins': '/api/admins/',
+            'sesiones_admin': '/api/sesiones-admin/',
+            'eventos_sistema': '/api/eventos-sistema/',
             'health': '/api/health/',
         },
     })
@@ -103,6 +121,33 @@ class VisitanteViewSet(viewsets.ModelViewSet):
             .order_by('-total_visitas', 'apellido', 'nombre')[:top]
         )
         return Response(list(rows), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def finalizar(self, request, pk=None):
+        visitante = self.get_object()
+        finalizado_en = datetime.now() - timedelta(hours=3)
+        visitante.fecha_visita = finalizado_en.date()
+        visitante.hora_visita = finalizado_en.time().replace(microsecond=0)
+        visitante.save(update_fields=['fecha_visita', 'hora_visita'])
+        serializer = self.get_serializer(visitante)
+        return Response(
+            {
+                'message': 'Visita finalizada correctamente.',
+                'visitante': serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except (ProtectedError, IntegrityError):
+            return Response(
+                {
+                    'error': 'No se puede eliminar este visitante porque tiene registros relacionados. Use /visitantes/{id}/finalizar/.',
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
 
 class ScannerViewSet(viewsets.ModelViewSet):
@@ -261,3 +306,33 @@ class PerfilAplicacionViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(perfil)
         return Response(serializer.data)
+
+
+class UsuarioAdminViewSet(viewsets.ModelViewSet):
+    queryset = UsuarioAdmin.objects.all()
+    serializer_class = UsuarioAdminSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['rol', 'activo', 'autenticacion_2fa']
+    search_fields = ['username', 'nombre_completo', 'email']
+    ordering_fields = ['username', 'created_at', 'ultimo_acceso']
+    ordering = ['username']
+
+
+class SesionesAdminViewSet(viewsets.ModelViewSet):
+    queryset = SesionesAdmin.objects.select_related('idadmin').all()
+    serializer_class = SesionesAdminSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['activa', 'idadmin']
+    search_fields = ['token', 'idadmin__username', 'ip_address']
+    ordering_fields = ['fecha_inicio', 'fecha_expiracion']
+    ordering = ['-fecha_inicio']
+
+
+class EventosSistemaViewSet(viewsets.ModelViewSet):
+    queryset = EventosSistema.objects.select_related('idadmin').all()
+    serializer_class = EventosSistemaSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['tipo', 'nivel', 'idadmin']
+    search_fields = ['tipo', 'descripcion', 'ip_address', 'idadmin__username']
+    ordering_fields = ['fecha', 'nivel']
+    ordering = ['-fecha']

@@ -183,3 +183,94 @@ class HistorialAccesos(models.Model):
 
     def __str__(self):
         return f"Acceso {self.idhistorial} - {self.estado}"
+
+
+class UsuarioAdmin(models.Model):
+    ROLES = [
+        ('admin', 'Admin'),
+        ('seguridad', 'Seguridad'),
+        ('supervisor', 'Supervisor'),
+    ]
+
+    idadmin = models.AutoField(primary_key=True, db_column='idadmin')
+    username = models.CharField(max_length=50, unique=True)
+    password_hash = models.CharField(max_length=255)
+    nombre_completo = models.CharField(max_length=200)
+    email = models.EmailField(max_length=150, unique=True)
+    telefono = models.CharField(max_length=20, null=True, blank=True)
+    rol = models.CharField(max_length=20, choices=ROLES, default='seguridad')
+    foto_perfil = models.TextField(null=True, blank=True)
+    idioma = models.CharField(max_length=10, default='Español')
+    tema = models.CharField(max_length=20, default='Claro')
+    autenticacion_2fa = models.BooleanField(default=False)
+    tiempo_sesion_horas = models.IntegerField(default=8)
+    ultimo_acceso = models.DateTimeField(null=True, blank=True)
+    activo = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'usuarioadmin'
+        verbose_name = 'Usuario Administrador'
+        verbose_name_plural = 'Usuarios Administradores'
+        ordering = ['username']
+
+    def __str__(self):
+        return f"{self.username} ({self.rol})"
+
+
+class SesionesAdmin(models.Model):
+    idsesion = models.AutoField(primary_key=True, db_column='idsesion')
+    idadmin = models.ForeignKey(
+        UsuarioAdmin,
+        on_delete=models.CASCADE,
+        db_column='idadmin',
+        related_name='sesiones',
+    )
+    token = models.CharField(max_length=255, unique=True)
+    ip_address = models.CharField(max_length=45, null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+    fecha_inicio = models.DateTimeField(auto_now_add=True)
+    fecha_expiracion = models.DateTimeField(null=True, blank=True)
+    activa = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'sesionesadmin'
+        verbose_name = 'Sesion Administrador'
+        verbose_name_plural = 'Sesiones Administrador'
+        ordering = ['-fecha_inicio']
+
+    def __str__(self):
+        return f"Sesion {self.idsesion} - {self.idadmin.username}"
+
+
+class EventosSistema(models.Model):
+    NIVELES = [
+        ('INFO', 'INFO'),
+        ('WARNING', 'WARNING'),
+        ('ERROR', 'ERROR'),
+        ('CRITICAL', 'CRITICAL'),
+    ]
+
+    idevento = models.AutoField(primary_key=True, db_column='idevento')
+    tipo = models.CharField(max_length=50)
+    descripcion = models.TextField(null=True, blank=True)
+    idadmin = models.ForeignKey(
+        UsuarioAdmin,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column='idadmin',
+        related_name='eventos',
+    )
+    ip_address = models.CharField(max_length=45, null=True, blank=True)
+    nivel = models.CharField(max_length=20, choices=NIVELES, default='INFO')
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'eventossistema'
+        verbose_name = 'Evento del Sistema'
+        verbose_name_plural = 'Eventos del Sistema'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.tipo} - {self.nivel}"

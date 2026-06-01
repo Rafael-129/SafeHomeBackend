@@ -1,6 +1,16 @@
 from rest_framework import serializers
 
-from .models import Departamento, HistorialAccesos, PerfilAplicacion, Scanner, Usuario, Visitante
+from .models import (
+    Departamento,
+    EventosSistema,
+    HistorialAccesos,
+    PerfilAplicacion,
+    Scanner,
+    SesionesAdmin,
+    Usuario,
+    UsuarioAdmin,
+    Visitante,
+)
 
 
 class DepartamentoSerializer(serializers.ModelSerializer):
@@ -60,6 +70,50 @@ class PerfilAplicacionSerializer(serializers.ModelSerializer):
         model = PerfilAplicacion
         fields = '__all__'
         read_only_fields = ['idperfil', 'updated_at']
+
+
+class UsuarioAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UsuarioAdmin
+        fields = '__all__'
+        read_only_fields = ['idadmin', 'created_at']
+
+
+class SesionesAdminSerializer(serializers.ModelSerializer):
+    admin_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SesionesAdmin
+        fields = '__all__'
+        read_only_fields = ['idsesion', 'fecha_inicio']
+
+    def get_admin_info(self, obj):
+        admin = obj.idadmin
+        return {
+            'username': admin.username,
+            'nombre_completo': admin.nombre_completo,
+            'rol': admin.rol,
+        }
+
+
+class EventosSistemaSerializer(serializers.ModelSerializer):
+    admin_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventosSistema
+        fields = '__all__'
+        read_only_fields = ['idevento', 'fecha']
+
+    def get_admin_info(self, obj):
+        if not obj.idadmin:
+            return None
+
+        admin = obj.idadmin
+        return {
+            'username': admin.username,
+            'nombre_completo': admin.nombre_completo,
+            'rol': admin.rol,
+        }
 
 
 class ScannerSerializer(serializers.ModelSerializer):
