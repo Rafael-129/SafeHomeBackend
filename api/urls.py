@@ -13,6 +13,9 @@ router.register(r'perfil', views.PerfilAplicacionViewSet, basename='perfil')
 router.register(r'admins', views.UsuarioAdminViewSet, basename='admins')
 router.register(r'sesiones-admin', views.SesionesAdminViewSet, basename='sesiones-admin')
 router.register(r'eventos-sistema', views.EventosSistemaViewSet, basename='eventos-sistema')
+router.register(r'configuracion', views.ConfiguracionViewSet, basename='configuracion')
+router.register(r'notificaciones', views.NotificacionesViewSet, basename='notificaciones')
+router.register(r'incidentes', views.IncidentesViewSet, basename='incidentes')
 
 urlpatterns = [
     path('', views.api_root, name='api-root'),

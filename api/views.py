@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from django.utils import timezone
 
 from django.db.models import Count
 from django.db.models.deletion import ProtectedError
@@ -9,26 +10,32 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 
 from .models import (
+    Configuracion,
     Departamento,
     EventosSistema,
     HistorialAccesos,
+    Notificaciones,
     PerfilAplicacion,
     Scanner,
     SesionesAdmin,
     Usuario,
     UsuarioAdmin,
     Visitante,
+    Incidentes,
 )
 from .serializers import (
+    ConfiguracionSerializer,
     DepartamentoSerializer,
     EventosSistemaSerializer,
     HistorialAccesosSerializer,
+    NotificacionesSerializer,
     PerfilAplicacionSerializer,
     ScannerSerializer,
     SesionesAdminSerializer,
     UsuarioSerializer,
     UsuarioAdminSerializer,
     VisitanteSerializer,
+    IncidentesSerializer,
 )
 
 
@@ -51,6 +58,8 @@ def api_root(request):
             'admins': '/api/admins/',
             'sesiones_admin': '/api/sesiones-admin/',
             'eventos_sistema': '/api/eventos-sistema/',
+            'configuracion': '/api/configuracion/',
+            'notificaciones': '/api/notificaciones/',
             'health': '/api/health/',
         },
     })
@@ -125,14 +134,37 @@ class VisitanteViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def finalizar(self, request, pk=None):
         visitante = self.get_object()
-        finalizado_en = datetime.now() - timedelta(hours=3)
+        # preserve original visit timestamps if present
+        original_fecha = visitante.fecha_visita
+        original_hora = visitante.hora_visita
+
+        finalizado_en = timezone.now() - timedelta(hours=3)
         visitante.fecha_visita = finalizado_en.date()
         visitante.hora_visita = finalizado_en.time().replace(microsecond=0)
         visitante.save(update_fields=['fecha_visita', 'hora_visita'])
+
+        # Update or create historial entry: set hora_salida for active access records
+        try:
+            historial = HistorialAccesos.objects.filter(idvisitante=visitante, hora_salida__isnull=True).order_by('-fecha_entrada', '-hora_entrada').first()
+            if historial:
+                historial.hora_salida = finalizado_en.time().replace(microsecond=0)
+                historial.save(update_fields=['hora_salida'])
+            else:
+                HistorialAccesos.objects.create(
+                    idvisitante=visitante,
+                    fecha_entrada=original_fecha if original_fecha else finalizado_en.date(),
+                    hora_entrada=original_hora if original_hora else finalizado_en.time().replace(microsecond=0),
+                    hora_salida=finalizado_en.time().replace(microsecond=0),
+                    estado='Permitido',
+                )
+        except Exception:
+            # don't block finalize on historial issues; return visitante update regardless
+            pass
+
         serializer = self.get_serializer(visitante)
         return Response(
             {
-                'message': 'Visita finalizada correctamente.',
+                'message': 'Visita finalizada correctamente. Hora de salida registrada en historial cuando fue posible.',
                 'visitante': serializer.data,
             },
             status=status.HTTP_200_OK,
@@ -336,3 +368,53 @@ class EventosSistemaViewSet(viewsets.ModelViewSet):
     search_fields = ['tipo', 'descripcion', 'ip_address', 'idadmin__username']
     ordering_fields = ['fecha', 'nivel']
     ordering = ['-fecha']
+
+
+class IncidentesViewSet(viewsets.ModelViewSet):
+    queryset = Incidentes.objects.select_related('idscanner').all()
+    serializer_class = IncidentesSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['gravedad', 'resuelto', 'idscanner']
+    search_fields = ['tipo', 'descripcion', 'observaciones']
+    ordering_fields = ['fecha', 'gravedad']
+    ordering = ['-fecha']
+
+    @action(detail=False, methods=['get'])
+    def recientes(self, request):
+        qs = self.queryset.order_by('-fecha')[:50]
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class ConfiguracionViewSet(viewsets.ModelViewSet):
+    queryset = Configuracion.objects.all()
+    serializer_class = ConfiguracionSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['tipo', 'parametro']
+    search_fields = ['parametro', 'descripcion', 'valor']
+    ordering_fields = ['tipo', 'parametro', 'ultima_modificacion']
+    ordering = ['tipo', 'parametro']
+
+
+class NotificacionesViewSet(viewsets.ModelViewSet):
+    queryset = Notificaciones.objects.select_related('idusuario').all()
+    serializer_class = NotificacionesSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['tipo', 'leida', 'idusuario']
+    search_fields = ['titulo', 'mensaje', 'tipo', 'idusuario__nombre', 'idusuario__apellido']
+    ordering_fields = ['fecha', 'tipo']
+    ordering = ['-fecha']
+
+    @action(detail=False, methods=['get'])
+    def no_leidas(self, request):
+        qs = self.queryset.filter(leida=False)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def marcar_leida(self, request, pk=None):
+        notificacion = self.get_object()
+        notificacion.leida = True
+        notificacion.save(update_fields=['leida'])
+        serializer = self.get_serializer(notificacion)
+        return Response(serializer.data, status=status.HTTP_200_OK)

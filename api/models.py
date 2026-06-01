@@ -274,3 +274,96 @@ class EventosSistema(models.Model):
 
     def __str__(self):
         return f"{self.tipo} - {self.nivel}"
+
+
+class Configuracion(models.Model):
+    TIPOS = [
+        ('sistema', 'Sistema'),
+        ('seguridad', 'Seguridad'),
+        ('camaras', 'Camaras'),
+        ('notificaciones', 'Notificaciones'),
+    ]
+
+    idconfig = models.AutoField(primary_key=True, db_column='idconfig')
+    parametro = models.CharField(max_length=100, unique=True)
+    valor = models.TextField()
+    descripcion = models.TextField(null=True, blank=True)
+    tipo = models.CharField(max_length=20, choices=TIPOS, default='sistema')
+    ultima_modificacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'configuracion'
+        verbose_name = 'Configuracion'
+        verbose_name_plural = 'Configuraciones'
+        ordering = ['tipo', 'parametro']
+
+    def __str__(self):
+        return f"{self.parametro} ({self.tipo})"
+
+
+class Notificaciones(models.Model):
+    TIPOS = [
+        ('Acceso', 'Acceso'),
+        ('Visitante', 'Visitante'),
+        ('Incidente', 'Incidente'),
+        ('Sistema', 'Sistema'),
+        ('Mantenimiento', 'Mantenimiento'),
+    ]
+
+    idnotificacion = models.AutoField(primary_key=True, db_column='idnotificacion')
+    idusuario = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column='idusuario',
+        related_name='notificaciones',
+    )
+    tipo = models.CharField(max_length=50, choices=TIPOS, default='Sistema')
+    titulo = models.CharField(max_length=200)
+    mensaje = models.TextField()
+    leida = models.BooleanField(default=False)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notificaciones'
+        verbose_name = 'Notificacion'
+        verbose_name_plural = 'Notificaciones'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.tipo} - {self.titulo}"
+
+
+class Incidentes(models.Model):
+    GRAVEDADES = [
+        ('BAJA', 'BAJA'),
+        ('MEDIA', 'MEDIA'),
+        ('ALTA', 'ALTA'),
+        ('CRÍTICA', 'CRÍTICA'),
+    ]
+
+    idincidente = models.AutoField(primary_key=True, db_column='idincidente')
+    tipo = models.CharField(max_length=50)
+    descripcion = models.TextField(null=True, blank=True)
+    gravedad = models.CharField(max_length=20, choices=GRAVEDADES, default='MEDIA')
+    idscanner = models.ForeignKey(
+        Scanner,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column='idscanner',
+    )
+    foto_evidencia = models.TextField(null=True, blank=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+    resuelto = models.BooleanField(default=False)
+    observaciones = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'incidentes'
+        verbose_name = 'Incidente'
+        verbose_name_plural = 'Incidentes'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.tipo} - {self.gravedad} - {self.fecha}" 

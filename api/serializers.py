@@ -1,15 +1,18 @@
 from rest_framework import serializers
 
 from .models import (
+    Configuracion,
     Departamento,
     EventosSistema,
     HistorialAccesos,
+    Notificaciones,
     PerfilAplicacion,
     Scanner,
     SesionesAdmin,
     Usuario,
     UsuarioAdmin,
     Visitante,
+    Incidentes,
 )
 
 
@@ -113,6 +116,53 @@ class EventosSistemaSerializer(serializers.ModelSerializer):
             'username': admin.username,
             'nombre_completo': admin.nombre_completo,
             'rol': admin.rol,
+        }
+
+
+class ConfiguracionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Configuracion
+        fields = '__all__'
+        read_only_fields = ['idconfig', 'ultima_modificacion']
+
+
+class NotificacionesSerializer(serializers.ModelSerializer):
+    usuario_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notificaciones
+        fields = '__all__'
+        read_only_fields = ['idnotificacion', 'fecha']
+
+    def get_usuario_info(self, obj):
+        if not obj.idusuario:
+            return None
+
+        usuario = obj.idusuario
+        return {
+            'idusuario': usuario.idusuario,
+            'nombre': usuario.nombre,
+            'apellido': usuario.apellido,
+            'dni': usuario.dni,
+        }
+
+
+class IncidentesSerializer(serializers.ModelSerializer):
+    scanner_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Incidentes
+        fields = '__all__'
+        read_only_fields = ['idincidente', 'fecha']
+
+    def get_scanner_info(self, obj):
+        if not obj.idscanner:
+            return None
+        scanner = obj.idscanner
+        return {
+            'idscanner': scanner.idscanner,
+            'tipo_persona': scanner.tipo_persona,
+            'fecha': scanner.fecha,
         }
 
 

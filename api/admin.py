@@ -1,14 +1,17 @@
 from django.contrib import admin
 from .models import (
+    Configuracion,
     Departamento,
     EventosSistema,
     HistorialAccesos,
+    Notificaciones,
     PerfilAplicacion,
     Scanner,
     SesionesAdmin,
     Usuario,
     UsuarioAdmin,
     Visitante,
+    Incidentes,
 )
 
 
@@ -87,4 +90,28 @@ class EventosSistemaAdmin(admin.ModelAdmin):
     list_display = ['idevento', 'tipo', 'nivel', 'idadmin', 'ip_address', 'fecha']
     list_filter = ['nivel', 'tipo', 'fecha']
     search_fields = ['tipo', 'descripcion', 'ip_address', 'idadmin__username']
+    ordering = ['-fecha']
+
+
+@admin.register(Configuracion)
+class ConfiguracionAdmin(admin.ModelAdmin):
+    list_display = ['idconfig', 'parametro', 'tipo', 'ultima_modificacion']
+    list_filter = ['tipo']
+    search_fields = ['parametro', 'descripcion', 'valor']
+    ordering = ['tipo', 'parametro']
+
+
+@admin.register(Notificaciones)
+class NotificacionesAdmin(admin.ModelAdmin):
+    list_display = ['idnotificacion', 'tipo', 'titulo', 'idusuario', 'leida', 'fecha']
+    list_filter = ['tipo', 'leida', 'fecha']
+    search_fields = ['titulo', 'mensaje', 'idusuario__nombre', 'idusuario__apellido']
+    ordering = ['-fecha']
+
+
+@admin.register(Incidentes)
+class IncidentesAdmin(admin.ModelAdmin):
+    list_display = ['idincidente', 'tipo', 'gravedad', 'idscanner', 'resuelto', 'fecha']
+    list_filter = ['gravedad', 'resuelto', 'fecha']
+    search_fields = ['tipo', 'descripcion', 'observaciones']
     ordering = ['-fecha']
