@@ -20,5 +20,6 @@ router.register(r'incidentes', views.IncidentesViewSet, basename='incidentes')
 urlpatterns = [
     path('', views.api_root, name='api-root'),
     path('health/', views.health_check, name='health-check'),
+    path('reportes/', views.generar_reporte, name='generar-reporte'),
     path('', include(router.urls)),
 ]

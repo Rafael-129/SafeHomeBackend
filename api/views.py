@@ -8,6 +8,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
+from django.http import HttpResponse, JsonResponse
+import io
+import csv
+from datetime import datetime as _dt
 
 from .models import (
     Configuracion,
@@ -73,6 +77,145 @@ def health_check(request):
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['GET', 'POST'])
+def generar_reporte(request):
+    """Genera y devuelve reportes en CSV/PDF/XLSX según parámetros.
+    Parámetros (GET o POST JSON):
+    - tipo: Nombre del reporte (opcional, afecta filtros básicos)
+    - desde: YYYY-MM-DD
+    - hasta: YYYY-MM-DD
+    - formato: csv | pdf | xlsx (default csv)
+    """
+    tipo = request.query_params.get('tipo') or (request.data.get('tipo') if hasattr(request, 'data') else None)
+    formato = (request.query_params.get('formato') or (request.data.get('formato') if hasattr(request, 'data') else None) or 'csv').lower()
+    desde = request.query_params.get('desde') or (request.data.get('desde') if hasattr(request, 'data') else None)
+    hasta = request.query_params.get('hasta') or (request.data.get('hasta') if hasattr(request, 'data') else None)
+
+    qs = HistorialAccesos.objects.select_related('idusuario', 'idvisitante').all()
+    try:
+        if desde:
+            qs = qs.filter(fecha_entrada__gte=_dt.strptime(desde, '%Y-%m-%d').date())
+        if hasta:
+            qs = qs.filter(fecha_entrada__lte=_dt.strptime(hasta, '%Y-%m-%d').date())
+    except ValueError:
+        return JsonResponse({'error': 'Formato de fecha inválido. Use YYYY-MM-DD en desde/hasta.'}, status=400)
+
+    # apply basic tipo filters
+    if tipo:
+        if 'seguridad' in tipo.lower():
+            qs = qs.filter(estado__icontains='Deneg')
+        if 'visitante' in tipo.lower():
+            qs = qs.filter(idvisitante__isnull=False)
+        if 'residente' in tipo.lower():
+            qs = qs.filter(idusuario__isnull=False)
+
+    serializer = HistorialAccesosSerializer(qs, many=True)
+    rows = serializer.data
+
+    filename_base = (tipo or 'reporte').replace(' ', '_')
+
+    # CSV (fast path)
+    if formato == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Persona', 'Tipo', 'Accion', 'Hora', 'Fecha', 'Ubicacion', 'Estado'])
+        for r in rows:
+            persona = None
+            if r.get('usuario_info'):
+                ui = r['usuario_info']
+                persona = f"{ui.get('nombre','')} {ui.get('apellido','')}".strip()
+            elif r.get('visitante_info'):
+                vi = r['visitante_info']
+                persona = f"{vi.get('nombre','')} {vi.get('apellido','')}".strip()
+            else:
+                persona = 'Desconocido'
+            tipo_persona = 'Residente' if r.get('idusuario') else ('Visitante' if r.get('idvisitante') else 'No Identificado')
+            estado = 'Exitoso' if str(r.get('estado')) == 'Permitido' else 'Denegado'
+            hora = r.get('hora_entrada') or r.get('hora') or '-'
+            fecha = r.get('fecha_entrada') or r.get('fecha') or ''
+            writer.writerow([persona, tipo_persona, 'Acceso Autorizado' if estado == 'Exitoso' else 'Acceso Denegado', hora, fecha, 'Entrada Principal', estado])
+        content = output.getvalue().encode('utf-8')
+        resp = HttpResponse(content, content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="{filename_base}.csv"'
+        return resp
+
+    # PDF generation (requires reportlab)
+    if formato == 'pdf':
+        try:
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+        except Exception as e:
+            return JsonResponse({'error': 'Falta la dependencia reportlab. Instale: pip install reportlab'}, status=501)
+
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=letter)
+        y = 750
+        p.setFont('Helvetica-Bold', 12)
+        p.drawString(40, y, f'Reporte: {tipo or "Generado"} - {_dt.now().isoformat()}')
+        y -= 30
+        p.setFont('Helvetica', 10)
+        p.drawString(40, y, 'Persona | Tipo | Accion | Hora | Fecha | Estado')
+        y -= 18
+        for r in rows[:200]:
+            persona = r.get('usuario_info') and f"{r['usuario_info'].get('nombre','')} {r['usuario_info'].get('apellido','')}" or (r.get('visitante_info') and f"{r['visitante_info'].get('nombre','')} {r['visitante_info'].get('apellido','')}" or 'Desconocido')
+            tipo_persona = 'Residente' if r.get('idusuario') else ('Visitante' if r.get('idvisitante') else 'No Identificado')
+            estado = 'Exitoso' if str(r.get('estado')) == 'Permitido' else 'Denegado'
+            hora = r.get('hora_entrada') or r.get('hora') or '-'
+            fecha = r.get('fecha_entrada') or r.get('fecha') or ''
+            text = f"{persona} | {tipo_persona} | {'Acceso Autorizado' if estado=='Exitoso' else 'Acceso Denegado'} | {hora} | {fecha} | {estado}"
+            p.drawString(40, y, (text[:120]))
+            y -= 14
+            if y < 60:
+                p.showPage()
+                y = 750
+        p.save()
+        buffer.seek(0)
+        resp = HttpResponse(buffer.read(), content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="{filename_base}.pdf"'
+        return resp
+
+    # XLSX generation (requires openpyxl)
+    if formato in ('xlsx', 'xls'):
+        try:
+            import openpyxl
+            from openpyxl.utils import get_column_letter
+        except Exception:
+            return JsonResponse({'error': 'Falta la dependencia openpyxl. Instale: pip install openpyxl'}, status=501)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Reporte'
+        header = ['Persona', 'Tipo', 'Accion', 'Hora', 'Fecha', 'Ubicacion', 'Estado']
+        ws.append(header)
+        for r in rows:
+            persona = None
+            if r.get('usuario_info'):
+                ui = r['usuario_info']
+                persona = f"{ui.get('nombre','')} {ui.get('apellido','')}".strip()
+            elif r.get('visitante_info'):
+                vi = r['visitante_info']
+                persona = f"{vi.get('nombre','')} {vi.get('apellido','')}".strip()
+            else:
+                persona = 'Desconocido'
+            tipo_persona = 'Residente' if r.get('idusuario') else ('Visitante' if r.get('idvisitante') else 'No Identificado')
+            estado = 'Exitoso' if str(r.get('estado')) == 'Permitido' else 'Denegado'
+            hora = r.get('hora_entrada') or r.get('hora') or '-'
+            fecha = r.get('fecha_entrada') or r.get('fecha') or ''
+            ws.append([persona, tipo_persona, 'Acceso Autorizado' if estado == 'Exitoso' else 'Acceso Denegado', hora, fecha, 'Entrada Principal', estado])
+
+        for i, _ in enumerate(header, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = 20
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        resp = HttpResponse(buffer.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        resp['Content-Disposition'] = f'attachment; filename="{filename_base}.xlsx"'
+        return resp
+
+    return JsonResponse({'error': 'Formato no soportado. Use csv|pdf|xlsx.'}, status=400)
+
+
 class DepartamentoViewSet(viewsets.ModelViewSet):
     queryset = Departamento.objects.all()
     serializer_class = DepartamentoSerializer
@@ -115,6 +258,8 @@ class VisitanteViewSet(viewsets.ModelViewSet):
     ordering = ['-fecha_visita']
 
     @action(detail=False, methods=['get'])
+
+
     def hoy(self, request):
         hoy = date.today()
         visitantes = self.queryset.filter(fecha_visita=hoy)
