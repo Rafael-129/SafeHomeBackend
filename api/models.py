@@ -94,6 +94,7 @@ class Scanner(models.Model):
     TIPO_PERSONA_CHOICES = [
         ('residente', 'Residente'),
         ('visitante', 'Visitante'),
+        ('desconocido', 'Desconocido'),
     ]
 
     idscanner = models.AutoField(primary_key=True, db_column='idscanner')
@@ -120,10 +121,12 @@ class Scanner(models.Model):
         verbose_name = 'Escaneo'
         verbose_name_plural = 'Escaneos'
         constraints = [
+            # Permite residente (solo idusuario), visitante (solo idvisitante)
+            # y desconocido (ambos null). Prohibe que ambos esten presentes.
             models.CheckConstraint(
                 check=(
-                    models.Q(idusuario__isnull=False, idvisitante__isnull=True)
-                    | models.Q(idusuario__isnull=True, idvisitante__isnull=False)
+                    models.Q(idusuario__isnull=True)
+                    | models.Q(idvisitante__isnull=True)
                 ),
                 name='chk_persona',
             ),
@@ -172,10 +175,12 @@ class HistorialAccesos(models.Model):
         verbose_name_plural = 'Historial de Accesos'
         ordering = ['-fecha_entrada', '-hora_entrada']
         constraints = [
+            # Permite residente, visitante y desconocido (ambos null).
+            # Prohibe que ambos esten presentes a la vez.
             models.CheckConstraint(
                 check=(
-                    models.Q(idusuario__isnull=False, idvisitante__isnull=True)
-                    | models.Q(idusuario__isnull=True, idvisitante__isnull=False)
+                    models.Q(idusuario__isnull=True)
+                    | models.Q(idvisitante__isnull=True)
                 ),
                 name='chk_acceso_persona',
             ),
