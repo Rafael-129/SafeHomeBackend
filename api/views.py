@@ -358,20 +358,17 @@ class ScannerViewSet(viewsets.ModelViewSet):
                     visitante = Visitante.objects.filter(dni=dni).order_by('-fecha_visita', '-hora_visita').first()
 
         if not usuario and not visitante:
-            return Response(
-                {
-                    'autorizado': False,
-                    'tipo_persona': 'desconocido',
-                    'mensaje': 'No se encontro coincidencia para el escaneo.',
-                    'idscanner': None,
-                    'idusuario': None,
-                    'idvisitante': None,
-                    'usuario_info': None,
-                    'visitante_info': None,
-                    'foto_capturada': request.data.get('foto_capturada'),
-                },
-                status=status.HTTP_200_OK,
+            # Desconocido: persistimos el escaneo (con su foto) para dejar evidencia
+            # y poder enlazarlo a un acceso denegado en el historial.
+            scanner = serializer.save(
+                idusuario=None,
+                idvisitante=None,
+                tipo_persona='desconocido',
             )
+            output = self.get_serializer(scanner).data
+            output['autorizado'] = False
+            output['mensaje'] = 'No se encontro coincidencia. Acceso denegado.'
+            return Response(output, status=status.HTTP_201_CREATED)
 
         scanner = serializer.save(
             idusuario=usuario,
