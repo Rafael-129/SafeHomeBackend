@@ -60,6 +60,8 @@ class Visitante(models.Model):
     )
     acepta_foto = models.BooleanField(default=True)
     observacion_privacidad = models.CharField(max_length=255, null=True, blank=True)
+    acepta_terminos = models.BooleanField(default=False)
+    fecha_aceptacion = models.DateTimeField(null=True, blank=True)
     foto = models.TextField(null=True, blank=True)
 
     class Meta:
