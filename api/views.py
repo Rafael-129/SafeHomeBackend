@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 
@@ -27,6 +28,7 @@ from .models import (
     Visitante,
     Incidentes,
 )
+from .retention import RETENCION_DIAS_DEFAULT, purgar_fotos_vencidas
 from .serializers import (
     ConfiguracionSerializer,
     DepartamentoSerializer,
@@ -275,6 +277,24 @@ class VisitanteViewSet(viewsets.ModelViewSet):
             .order_by('-total_visitas', 'apellido', 'nombre')[:top]
         )
         return Response(list(rows), status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def purgar_fotos(self, request):
+        """Borra las fotos de visitantes vencidas (politica de retencion).
+
+        Protegido opcionalmente: si existe la env PURGE_TOKEN, exige el header
+        X-Purge-Token con el mismo valor.
+        """
+        token_req = os.getenv('PURGE_TOKEN')
+        if token_req and request.headers.get('X-Purge-Token') != token_req:
+            return Response({'error': 'No autorizado'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        dias = request.data.get('dias') or os.getenv('RETENCION_FOTOS_DIAS', RETENCION_DIAS_DEFAULT)
+        try:
+            resultado = purgar_fotos_vencidas(dias)
+        except (TypeError, ValueError):
+            return Response({'error': 'Parametro dias invalido.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(resultado, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def finalizar(self, request, pk=None):
