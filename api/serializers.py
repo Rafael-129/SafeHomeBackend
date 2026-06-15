@@ -1,4 +1,3 @@
-from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
@@ -39,21 +38,15 @@ class VisitanteSerializer(serializers.ModelSerializer):
         fields = [
             'idvisitante', 'nombre', 'apellido', 'dni', 'motivo', 'fecha_visita',
             'hora_visita', 'iddepartamento', 'acepta_foto', 'observacion_privacidad',
-            'acepta_terminos', 'fecha_aceptacion', 'foto', 'depart_visita',
+            'foto', 'depart_visita',
         ]
-        read_only_fields = ['idvisitante', 'fecha_aceptacion']
+        read_only_fields = ['idvisitante']
         extra_kwargs = {
             'iddepartamento': {'required': False},
             'acepta_foto': {'required': False},
         }
 
     def create(self, validated_data):
-        if validated_data.get('acepta_terminos') is not True:
-            raise serializers.ValidationError({
-                'acepta_terminos': 'Debe aceptar los terminos y condiciones para registrar al visitante.',
-            })
-        validated_data['fecha_aceptacion'] = timezone.now()
-
         depart_codigo = validated_data.pop('depart_visita', None)
         if depart_codigo:
             try:
