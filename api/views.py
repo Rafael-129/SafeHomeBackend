@@ -397,6 +397,7 @@ class ScannerViewSet(viewsets.ModelViewSet):
             idusuario=usuario,
             idvisitante=visitante,
             tipo_persona='residente' if usuario else 'visitante',
+            foto_capturada=None,  # reconocidos: se muestra su foto enrolada, no se guarda captura
         )
 
         output = self.get_serializer(scanner).data
@@ -445,14 +446,11 @@ class HistorialAccesosViewSet(viewsets.ModelViewSet):
     queryset = HistorialAccesos.objects.select_related(
         'idusuario',
         'idvisitante',
+        'idscanner',
         'ideventual',
         'idusuario__iddepartamento',
         'idvisitante__iddepartamento',
         'ideventual__iddepartamento',
-    ).defer(
-        # No se serializan; evitan arrastrar base64 pesado en cada consulta (egress).
-        'idusuario__foto',
-        'idvisitante__foto',
     ).all()
     serializer_class = HistorialAccesosSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

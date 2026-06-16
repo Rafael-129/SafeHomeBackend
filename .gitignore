@@ -9,3 +9,6 @@ venv/
 .venv/
 *.log
 .DS_Store
+
+# Bases de datos locales/de prueba
+*.sqlite3
