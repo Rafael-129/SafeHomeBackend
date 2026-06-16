@@ -1,6 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
+from . import storage
 from .models import (
     Configuracion,
     Departamento,
@@ -18,6 +19,44 @@ from .models import (
 )
 
 
+class FotoBlobSerializerMixin:
+    """Sube fotos base64 a Azure Blob al escribir y devuelve URL SAS al leer.
+
+    La subclase define `foto_field` (campo del modelo) y `foto_tipo`
+    (storage.RESIDENTE / VISITANTE / DENEGADO).
+    """
+
+    foto_field = None
+    foto_tipo = None
+
+    def _subir_foto(self, validated_data):
+        valor = validated_data.get(self.foto_field)
+        if valor:
+            validated_data[self.foto_field] = storage.subir_foto(valor, self.foto_tipo)
+
+    def create(self, validated_data):
+        self._subir_foto(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if self.foto_field in validated_data and validated_data.get(self.foto_field):
+            anterior = getattr(instance, self.foto_field, None)
+            validated_data[self.foto_field] = storage.subir_foto(
+                validated_data[self.foto_field], self.foto_tipo
+            )
+            if anterior and anterior != validated_data[self.foto_field]:
+                storage.borrar_foto(anterior, self.foto_tipo)
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if self.foto_field in data:
+            data[self.foto_field] = storage.url_foto(
+                getattr(instance, self.foto_field, None), self.foto_tipo
+            )
+        return data
+
+
 class DepartamentoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Departamento
@@ -25,14 +64,20 @@ class DepartamentoSerializer(serializers.ModelSerializer):
         read_only_fields = ['iddepartamento', 'created_at']
 
 
-class UsuarioSerializer(serializers.ModelSerializer):
+class UsuarioSerializer(FotoBlobSerializerMixin, serializers.ModelSerializer):
+    foto_field = 'foto'
+    foto_tipo = storage.RESIDENTE
+
     class Meta:
         model = Usuario
         fields = '__all__'
         read_only_fields = ['idusuario']
 
 
-class VisitanteSerializer(serializers.ModelSerializer):
+class VisitanteSerializer(FotoBlobSerializerMixin, serializers.ModelSerializer):
+    foto_field = 'foto'
+    foto_tipo = storage.VISITANTE
+
     depart_visita = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
@@ -205,7 +250,10 @@ class IncidentesSerializer(serializers.ModelSerializer):
         }
 
 
-class ScannerSerializer(serializers.ModelSerializer):
+class ScannerSerializer(FotoBlobSerializerMixin, serializers.ModelSerializer):
+    foto_field = 'foto_capturada'
+    foto_tipo = storage.DENEGADO
+
     usuario_info = serializers.SerializerMethodField()
     visitante_info = serializers.SerializerMethodField()
 
@@ -240,6 +288,7 @@ class HistorialAccesosSerializer(serializers.ModelSerializer):
     visitante_info = serializers.SerializerMethodField()
     eventual_info = serializers.SerializerMethodField()
     scanner_info = serializers.SerializerMethodField()
+    foto_url = serializers.SerializerMethodField()
 
     class Meta:
         model = HistorialAccesos
@@ -284,6 +333,17 @@ class HistorialAccesosSerializer(serializers.ModelSerializer):
             return {
                 'tipo_persona': scanner.tipo_persona,
                 'fecha': scanner.fecha,
-                'foto_capturada': scanner.foto_capturada,
+                'foto_capturada': storage.url_foto(scanner.foto_capturada, storage.DENEGADO),
             }
+        return None
+
+    def get_foto_url(self, obj):
+        """Foto a mostrar en 'Ultimo Acceso': enrolada si es reconocido,
+        captura si es desconocido."""
+        if obj.idusuario:
+            return storage.url_foto(obj.idusuario.foto, storage.RESIDENTE)
+        if obj.idvisitante:
+            return storage.url_foto(obj.idvisitante.foto, storage.VISITANTE)
+        if obj.idscanner and obj.idscanner.foto_capturada:
+            return storage.url_foto(obj.idscanner.foto_capturada, storage.DENEGADO)
         return None
