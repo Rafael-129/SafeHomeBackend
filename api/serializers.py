@@ -6,6 +6,7 @@ from .models import (
     Departamento,
     EventosSistema,
     HistorialAccesos,
+    IngresoEventual,
     Notificaciones,
     PerfilAplicacion,
     Scanner,
@@ -71,6 +72,37 @@ class VisitanteSerializer(serializers.ModelSerializer):
             validated_data['foto'] = None
             if not validated_data.get('observacion_privacidad'):
                 validated_data['observacion_privacidad'] = 'Visitante no autoriza captura de foto.'
+
+        return super().create(validated_data)
+
+
+class IngresoEventualSerializer(serializers.ModelSerializer):
+    depart_visita = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = IngresoEventual
+        fields = [
+            'ideventual', 'dni', 'nombre', 'apellido', 'iddepartamento',
+            'motivo', 'fecha', 'depart_visita',
+        ]
+        read_only_fields = ['ideventual', 'fecha']
+        extra_kwargs = {
+            'iddepartamento': {'required': False},
+        }
+
+    def create(self, validated_data):
+        depart_codigo = validated_data.pop('depart_visita', None)
+        if depart_codigo:
+            try:
+                departamento = Departamento.objects.get(codigo=depart_codigo)
+                validated_data['iddepartamento'] = departamento
+            except Departamento.DoesNotExist as exc:
+                raise serializers.ValidationError({
+                    'depart_visita': f'Departamento {depart_codigo} no existe',
+                }) from exc
+
+        if 'iddepartamento' not in validated_data:
+            raise serializers.ValidationError({'depart_visita': 'Debe proporcionar un departamento'})
 
         return super().create(validated_data)
 
@@ -206,6 +238,7 @@ class ScannerSerializer(serializers.ModelSerializer):
 class HistorialAccesosSerializer(serializers.ModelSerializer):
     usuario_info = serializers.SerializerMethodField()
     visitante_info = serializers.SerializerMethodField()
+    eventual_info = serializers.SerializerMethodField()
     scanner_info = serializers.SerializerMethodField()
 
     class Meta:
@@ -230,6 +263,18 @@ class HistorialAccesosSerializer(serializers.ModelSerializer):
                 'nombre': visitante.nombre,
                 'apellido': visitante.apellido,
                 'depart_visita': visitante.iddepartamento.codigo if visitante.iddepartamento else 'N/A',
+            }
+        return None
+
+    def get_eventual_info(self, obj):
+        if obj.ideventual:
+            eventual = obj.ideventual
+            return {
+                'nombre': eventual.nombre,
+                'apellido': eventual.apellido,
+                'dni': eventual.dni,
+                'motivo': eventual.motivo,
+                'depart_visita': eventual.iddepartamento.codigo if eventual.iddepartamento else 'N/A',
             }
         return None
 
