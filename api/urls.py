@@ -8,6 +8,7 @@ router.register(r'departamentos', views.DepartamentoViewSet, basename='departame
 router.register(r'usuarios', views.UsuarioViewSet, basename='usuario')
 router.register(r'visitantes', views.VisitanteViewSet, basename='visitante')
 router.register(r'scanner', views.ScannerViewSet, basename='scanner')
+router.register(r'ingresos-eventuales', views.IngresoEventualViewSet, basename='ingreso-eventual')
 router.register(r'historial', views.HistorialAccesosViewSet, basename='historial')
 router.register(r'perfil', views.PerfilAplicacionViewSet, basename='perfil')
 router.register(r'admins', views.UsuarioAdminViewSet, basename='admins')

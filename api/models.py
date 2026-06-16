@@ -60,6 +60,8 @@ class Visitante(models.Model):
     )
     acepta_foto = models.BooleanField(default=True)
     observacion_privacidad = models.CharField(max_length=255, null=True, blank=True)
+    acepta_terminos = models.BooleanField(default=False)
+    fecha_aceptacion = models.DateTimeField(null=True, blank=True)
     foto = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -69,6 +71,35 @@ class Visitante(models.Model):
 
     def __str__(self):
         return f"{self.nombre} {self.apellido} - {self.dni}"
+
+
+class IngresoEventual(models.Model):
+    """Ingreso puntual identificado solo por DNI (repartidor, proveedor, tecnico).
+
+    No es un visitante registrado y no se enrola su rostro. Solo deja registro de
+    auditoria del acceso.
+    """
+
+    ideventual = models.AutoField(primary_key=True, db_column='ideventual')
+    dni = models.CharField(max_length=8)
+    nombre = models.CharField(max_length=100)
+    apellido = models.CharField(max_length=100)
+    iddepartamento = models.ForeignKey(
+        Departamento,
+        on_delete=models.RESTRICT,
+        db_column='iddepartamento',
+    )
+    motivo = models.CharField(max_length=255, null=True, blank=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ingresoeventual'
+        verbose_name = 'Ingreso Eventual'
+        verbose_name_plural = 'Ingresos Eventuales'
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.nombre} {self.apellido} - {self.dni} (eventual)"
 
 
 class PerfilAplicacion(models.Model):
@@ -163,6 +194,13 @@ class HistorialAccesos(models.Model):
         null=True,
         blank=True,
         db_column='idscanner',
+    )
+    ideventual = models.ForeignKey(
+        'IngresoEventual',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column='ideventual',
     )
     fecha_entrada = models.DateField()
     hora_entrada = models.TimeField()

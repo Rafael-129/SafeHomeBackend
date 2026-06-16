@@ -1,9 +1,10 @@
+import os
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 
 from django.db.models import Count
 from django.db.models.deletion import ProtectedError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action, api_view
@@ -18,6 +19,7 @@ from .models import (
     Departamento,
     EventosSistema,
     HistorialAccesos,
+    IngresoEventual,
     Notificaciones,
     PerfilAplicacion,
     Scanner,
@@ -27,11 +29,13 @@ from .models import (
     Visitante,
     Incidentes,
 )
+from .retention import RETENCION_DIAS_DEFAULT, purgar_fotos_vencidas
 from .serializers import (
     ConfiguracionSerializer,
     DepartamentoSerializer,
     EventosSistemaSerializer,
     HistorialAccesosSerializer,
+    IngresoEventualSerializer,
     NotificacionesSerializer,
     PerfilAplicacionSerializer,
     ScannerSerializer,
@@ -56,6 +60,7 @@ def api_root(request):
             'visitantes': '/api/visitantes/',
             'visitantes_frecuentes': '/api/visitantes/frecuentes/',
             'scanner': '/api/scanner/',
+            'ingresos_eventuales': '/api/ingresos-eventuales/',
             'historial': '/api/historial/',
             'historial_estadisticas': '/api/historial/estadisticas/?desde=YYYY-MM-DD&hasta=YYYY-MM-DD',
             'perfil_actual': '/api/perfil/actual/',
@@ -276,6 +281,24 @@ class VisitanteViewSet(viewsets.ModelViewSet):
         )
         return Response(list(rows), status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['post'])
+    def purgar_fotos(self, request):
+        """Borra las fotos de visitantes vencidas (politica de retencion).
+
+        Protegido opcionalmente: si existe la env PURGE_TOKEN, exige el header
+        X-Purge-Token con el mismo valor.
+        """
+        token_req = os.getenv('PURGE_TOKEN')
+        if token_req and request.headers.get('X-Purge-Token') != token_req:
+            return Response({'error': 'No autorizado'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        dias = request.data.get('dias') or os.getenv('RETENCION_FOTOS_DIAS', RETENCION_DIAS_DEFAULT)
+        try:
+            resultado = purgar_fotos_vencidas(dias)
+        except (TypeError, ValueError):
+            return Response({'error': 'Parametro dias invalido.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(resultado, status=status.HTTP_200_OK)
+
     @action(detail=True, methods=['post'])
     def finalizar(self, request, pk=None):
         visitante = self.get_object()
@@ -388,12 +411,48 @@ class ScannerViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+class IngresoEventualViewSet(viewsets.ModelViewSet):
+    queryset = IngresoEventual.objects.select_related('iddepartamento').all()
+    serializer_class = IngresoEventualSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['dni', 'iddepartamento']
+    search_fields = ['nombre', 'apellido', 'dni', 'motivo']
+    ordering_fields = ['fecha', 'nombre', 'apellido']
+    ordering = ['-fecha']
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            eventual = serializer.save()
+            ahora = timezone.localtime()
+            historial = HistorialAccesos.objects.create(
+                ideventual=eventual,
+                fecha_entrada=ahora.date(),
+                hora_entrada=ahora.time().replace(microsecond=0),
+                estado='Permitido',
+            )
+
+        output = self.get_serializer(eventual).data
+        output['autorizado'] = True
+        output['mensaje'] = 'Ingreso eventual registrado correctamente.'
+        output['idhistorial'] = historial.idhistorial
+        return Response(output, status=status.HTTP_201_CREATED)
+
+
 class HistorialAccesosViewSet(viewsets.ModelViewSet):
     queryset = HistorialAccesos.objects.select_related(
         'idusuario',
         'idvisitante',
+        'ideventual',
         'idusuario__iddepartamento',
         'idvisitante__iddepartamento',
+        'ideventual__iddepartamento',
+    ).defer(
+        # No se serializan; evitan arrastrar base64 pesado en cada consulta (egress).
+        'idusuario__foto',
+        'idvisitante__foto',
     ).all()
     serializer_class = HistorialAccesosSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
