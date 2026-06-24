@@ -30,6 +30,28 @@ class Command(BaseCommand):
                 migradas += 1
         return migradas
 
+     def _migrar_scanner(self, dry_run):
+        """Capturas de desconocidos -> denegados; capturas de reconocidos -> se
+        eliminan (ya no se usan en el modelo nuevo)."""
+        migradas = 0
+        eliminadas = 0
+        qs = Scanner.objects.exclude(foto_capturada__isnull=True)
+        for s in qs.iterator():
+            if not s.foto_capturada or not storage.es_base64(s.foto_capturada):
+                continue
+            es_desconocido = s.idusuario_id is None and s.idvisitante_id is None
+            if es_desconocido:
+                if not dry_run:
+                    s.foto_capturada = storage.subir_foto(s.foto_capturada, storage.DENEGADO)
+                    s.save(update_fields=['foto_capturada'])
+                migradas += 1
+            else:
+                if not dry_run:
+                    s.foto_capturada = None
+                    s.save(update_fields=['foto_capturada'])
+                eliminadas += 1
+        return migradas, eliminadas
+
     def handle(self, *args, **options):
         dry_run = options['dry_run']
 
