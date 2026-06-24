@@ -39,7 +39,21 @@ _CONTAINER_ENV = {
     DENEGADO: ('AZURE_STORAGE_CONTAINER_DENEGADOS', 'denegados'),
 }
 
-_SAS_HORAS = 2  # validez de la URL de lectura
+_SAS_MINUTOS = 30  # validez de la URL de lectura (SAS)
+
+
+def _expiry_ventana():
+    """Expiry alineado al final de la ventana de 30 min actual.
+
+    Asi la URL SAS es identica para todas las peticiones dentro de la misma
+    ventana (el navegador la cachea y no re-descarga en cada poll), y se
+    regenera cada 30 min. La validez efectiva de un link es de 0 a 30 min:
+    pasado ese punto Azure lo rechaza aunque alguien lo tenga.
+    """
+    ahora = dt.datetime.now(dt.timezone.utc)
+    minuto_ventana = (ahora.minute // _SAS_MINUTOS) * _SAS_MINUTOS
+    inicio = ahora.replace(minute=minuto_ventana, second=0, microsecond=0)
+    return inicio + dt.timedelta(minutes=_SAS_MINUTOS)
 
 
 def _connection_string():
@@ -101,7 +115,7 @@ def subir_foto(data, tipo):
         overwrite=True,
         content_settings=ContentSettings(
             content_type='image/jpeg',
-            cache_control='public, max-age=3600',
+            cache_control='public, max-age=1800',
         ),
     )
     return blob_name
@@ -110,8 +124,9 @@ def subir_foto(data, tipo):
 def url_foto(blob_name, tipo):
     """Devuelve una URL SAS de lectura para el blob, o el valor tal cual si no aplica.
 
-    El expiry se redondea a la hora siguiente para que la URL sea estable dentro
-    de la hora (el navegador la cachea y no re-descarga en cada poll).
+    El expiry se alinea a la ventana de 30 min para que la URL sea estable dentro
+    de la ventana (el navegador la cachea y no re-descarga en cada poll) y se
+    regenere cada 30 min por seguridad.
     """
     if not blob_name:
         return blob_name
@@ -122,7 +137,7 @@ def url_foto(blob_name, tipo):
         return blob_name
 
     cuenta = _service()
-    expiry = dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=_SAS_HORAS)
+    expiry = _expiry_ventana()
     sas = generate_blob_sas(
         account_name=cuenta.account_name,
         container_name=_container(tipo),
