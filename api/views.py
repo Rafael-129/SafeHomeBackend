@@ -1,8 +1,8 @@
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from django.utils import timezone
 
-from django.db.models import Count
+from django.db.models import Count, F
 from django.db.models.deletion import ProtectedError
 from django.db import IntegrityError, transaction
 from django_filters.rest_framework import DjangoFilterBackend
@@ -274,9 +274,17 @@ class VisitanteViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def frecuentes(self, request):
         top = int(request.query_params.get('top', 10))
+        # Cuenta ingresos reales (registros del historial) por persona/dni, no el
+        # numero de veces que se registro al visitante.
         rows = (
-            Visitante.objects.values('dni', 'nombre', 'apellido')
-            .annotate(total_visitas=Count('idvisitante'))
+            HistorialAccesos.objects
+            .filter(idvisitante__isnull=False)
+            .values(
+                dni=F('idvisitante__dni'),
+                nombre=F('idvisitante__nombre'),
+                apellido=F('idvisitante__apellido'),
+            )
+            .annotate(total_visitas=Count('idhistorial'))
             .order_by('-total_visitas', 'apellido', 'nombre')[:top]
         )
         return Response(list(rows), status=status.HTTP_200_OK)
@@ -302,38 +310,36 @@ class VisitanteViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def finalizar(self, request, pk=None):
         visitante = self.get_object()
-        # preserve original visit timestamps if present
-        original_fecha = visitante.fecha_visita
-        original_hora = visitante.hora_visita
 
-        finalizado_en = timezone.now() - timedelta(hours=3)
-        visitante.fecha_visita = finalizado_en.date()
-        visitante.hora_visita = finalizado_en.time().replace(microsecond=0)
-        visitante.save(update_fields=['fecha_visita', 'hora_visita'])
+        # Hora de salida EXACTA (hora local), no aproximada.
+        ahora = timezone.localtime()
+        hora_salida = ahora.time().replace(microsecond=0)
 
-        # Update or create historial entry: set hora_salida for active access records
-        try:
-            historial = HistorialAccesos.objects.filter(idvisitante=visitante, hora_salida__isnull=True).order_by('-fecha_entrada', '-hora_entrada').first()
-            if historial:
-                historial.hora_salida = finalizado_en.time().replace(microsecond=0)
-                historial.save(update_fields=['hora_salida'])
-            else:
-                HistorialAccesos.objects.create(
-                    idvisitante=visitante,
-                    fecha_entrada=original_fecha if original_fecha else finalizado_en.date(),
-                    hora_entrada=original_hora if original_hora else finalizado_en.time().replace(microsecond=0),
-                    hora_salida=finalizado_en.time().replace(microsecond=0),
-                    estado='Permitido',
-                )
-        except Exception:
-            # don't block finalize on historial issues; return visitante update regardless
-            pass
+        # Marca la salida en el acceso activo del visitante (sin tocar su entrada).
+        historial = (
+            HistorialAccesos.objects
+            .filter(idvisitante=visitante, hora_salida__isnull=True)
+            .order_by('-fecha_entrada', '-hora_entrada')
+            .first()
+        )
+        if historial:
+            historial.hora_salida = hora_salida
+            historial.save(update_fields=['hora_salida'])
+        else:
+            historial = HistorialAccesos.objects.create(
+                idvisitante=visitante,
+                fecha_entrada=visitante.fecha_visita or ahora.date(),
+                hora_entrada=visitante.hora_visita or hora_salida,
+                hora_salida=hora_salida,
+                estado='Permitido',
+            )
 
         serializer = self.get_serializer(visitante)
         return Response(
             {
-                'message': 'Visita finalizada correctamente. Hora de salida registrada en historial cuando fue posible.',
+                'message': 'Visita finalizada. Hora de salida registrada.',
                 'visitante': serializer.data,
+                'hora_salida': hora_salida,
             },
             status=status.HTTP_200_OK,
         )
